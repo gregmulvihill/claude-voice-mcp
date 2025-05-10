@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Voice MCP Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        h2 {
+            color: #3498db;
+            margin-top: 20px;
+        }
+        
+        .card {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        input[type="text"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        
+        #connection-status {
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        
+        #connection-status.connected {
+            background: #e6ffe6;
+            border: 1px solid #86c586;
+        }
+        
+        #connection-status.disconnected {
+            background: #ffe6e6;
+            border: 1px solid #c58686;
+        }
+        
+        #log-container {
+            margin-top: 20px;
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f5f5f5;
+            font-family: monospace;
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        
+        .outgoing {
+            color: #2980b9;
+        }
+        
+        .incoming {
+            color: #27ae60;
+        }
+        
+        .error {
+            color: #c0392b;
+        }
+        
+        .timestamp {
+            color: #7f8c8d;
+            font-size: 0.8em;
+            margin-right: 5px;
+        }
+        
+        .audio-container {
+            margin-top: 20px;
+        }
+        
+        audio {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Claude Voice MCP Test Client</h1>
+        
+        <div id="connection-status" class="disconnected">
+            Disconnected
+        </div>
+        
+        <div class="card">
+            <h2>Connection Settings</h2>
+            <div class="form-group">
+                <label for="server-url">Server URL</label>
+                <input type="text" id="server-url" value="ws://localhost:3000/api/v1/ws" />
+            </div>
+            <button id="connect-btn">Connect</button>
+            <button id="disconnect-btn" disabled>Disconnect</button>
+        </div>
+        
+        <div class="card">
+            <h2>TTS Testing</h2>
+            <div class="form-group">
+                <label for="tts-text">Text to Speak</label>
+                <textarea id="tts-text">Hello, I am Claude. This is a test of the text-to-speech capability.</textarea>
+            </div>
+            <div class="form-group">
+                <label for="tts-voice">Voice</label>
+                <select id="tts-voice">
+                    <option value="en-US">English (US)</option>
+                    <option value="en-GB">English (UK)</option>
+                    <option value="es-ES">Spanish</option>
+                    <option value="fr-FR">French</option>
+                    <option value="de-DE">German</option>
+                    <option value="it-IT">Italian</option>
+                    <option value="ja-JP">Japanese</option>
+                    <option value="ko-KR">Korean</option>
+                    <option value="pt-BR">Portuguese (Brazil)</option>
+                    <option value="ru-RU">Russian</option>
+                    <option value="zh-CN">Chinese (Simplified)</option>
+                </select>
+            </div>
+            <button id="tts-btn" disabled>Generate Speech</button>
+        </div>
+        
+        <div class="audio-container" id="audio-container" style="display: none;">
+            <h2>Generated Audio</h2>
+            <audio controls id="audio-player">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+        
+        <h2>Communication Log</h2>
+        <div id="log-container"></div>
+    </div>
+    
+    <script>
+        // DOM Elements
+        const connectionStatus = document.getElementById('connection-status');
+        const serverUrlInput = document.getElementById('server-url');
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const ttsTextArea = document.getElementById('tts-text');
+        const ttsVoiceSelect = document.getElementById('tts-voice');
+        const ttsBtn = document.getElementById('tts-btn');
+        const logContainer = document.getElementById('log-container');
+        const audioContainer = document.getElementById('audio-container');
+        const audioPlayer = document.getElementById('audio-player');
+        
+        // WebSocket connection
+        let ws = null;
+        let clientId = null;
+        
+        // Connect to WebSocket server
+        connectBtn.addEventListener('click', () => {
+            const serverUrl = serverUrlInput.value;
+            
+            try {
+                ws = new WebSocket(serverUrl);
+                
+                ws.onopen = () => {
+                    connectionStatus.classList.remove('disconnected');
+                    connectionStatus.classList.add('connected');
+                    connectionStatus.textContent = 'Connected';
+                    
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    ttsBtn.disabled = false;
+                    
+                    logToUI('Connection established', 'status');
+                };
+                
+                ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    logToUI(`Received: ${JSON.stringify(message, null, 2)}`, 'incoming');
+                    
+                    handleMessage(message);
+                };
+                
+                ws.onclose = () => {
+                    connectionStatus.classList.remove('connected');
+                    connectionStatus.classList.add('disconnected');
+                    connectionStatus.textContent = 'Disconnected';
+                    
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    ttsBtn.disabled = true;
+                    
+                    logToUI('Connection closed', 'status');
+                    
+                    ws = null;
+                    clientId = null;
+                };
+                
+                ws.onerror = (error) => {
+                    logToUI(`WebSocket error: ${error}`, 'error');
+                };
+            } catch (error) {
+                logToUI(`Failed to connect: ${error.message}`, 'error');
+            }
+        });
+        
+        // Disconnect from WebSocket server
+        disconnectBtn.addEventListener('click', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+        
+        // Send TTS request
+        ttsBtn.addEventListener('click', () => {
+            if (!ws) {
+                logToUI('Not connected to server', 'error');
+                return;
+            }
+            
+            const text = ttsTextArea.value;
+            const voice = ttsVoiceSelect.value;
+            
+            if (!text) {
+                logToUI('Please enter text to speak', 'error');
+                return;
+            }
+            
+            const request = {
+                type: 'tts_request',
+                text,
+                voice,
+                request_id: generateRequestId(),
+                timestamp: new Date().toISOString()
+            };
+            
+            ws.send(JSON.stringify(request));
+            logToUI(`Sent TTS request: ${JSON.stringify(request, null, 2)}`, 'outgoing');
+        });
+        
+        // Handle incoming WebSocket messages
+        function handleMessage(message) {
+            switch (message.type) {
+                case 'connection':
+                    clientId = message.client_id;
+                    logToUI(`Connection established with client ID: ${clientId}`, 'status');
+                    break;
+                    
+                case 'tts_response':
+                    // Handle TTS response with audio data
+                    if (message.data) {
+                        const audioData = message.data;
+                        const audioBlob = base64ToBlob(audioData, 'audio/mp3');
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        
+                        audioPlayer.src = audioUrl;
+                        audioContainer.style.display = 'block';
+                        
+                        logToUI('Received audio data, ready for playback', 'status');
+                    }
+                    break;
+                    
+                case 'tts_status':
+                    logToUI(`TTS Status: ${message.status}`, 'status');
+                    break;
+                    
+                case 'error':
+                    logToUI(`Error: ${message.message}`, 'error');
+                    break;
+                    
+                default:
+                    logToUI(`Unhandled message type: ${message.type}`, 'status');
+            }
+        }
+        
+        // Generate a unique request ID
+        function generateRequestId() {
+            return 'req_' + Math.random().toString(36).substring(2, 15);
+        }
+        
+        // Convert base64 to Blob
+        function base64ToBlob(base64, mimeType) {
+            const byteCharacters = atob(base64);
+            const byteArrays = [];
+            
+            for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+                const slice = byteCharacters.slice(offset, offset + 512);
+                
+                const byteNumbers = new Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {
+                    byteNumbers[i] = slice.charCodeAt(i);
+                }
+                
+                const byteArray = new Uint8Array(byteNumbers);
+                byteArrays.push(byteArray);
+            }
+            
+            return new Blob(byteArrays, { type: mimeType });
+        }
+        
+        // Log message to UI
+        function logToUI(message, type) {
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            
+            const timestamp = document.createElement('span');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = new Date().toLocaleTimeString();
+            
+            logEntry.appendChild(timestamp);
+            logEntry.appendChild(document.createTextNode(message));
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
