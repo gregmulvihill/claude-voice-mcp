@@ -138,6 +138,17 @@
         audio {
             width: 100%;
         }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .provider-info {
+            background: #f0f7fb;
+            border-left: 4px solid #3498db;
+            padding: 10px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -158,6 +169,21 @@
             <button id="disconnect-btn" disabled>Disconnect</button>
         </div>
         
+        <div class="card provider-settings">
+            <h2>TTS Provider</h2>
+            <div class="provider-info">
+                Available providers will be shown here once connected...
+            </div>
+            <div class="form-group">
+                <label for="tts-provider">Provider</label>
+                <select id="tts-provider" disabled>
+                    <option value="google">Google TTS</option>
+                    <option value="elevenlabs">Eleven Labs</option>
+                </select>
+                <button id="get-voices-btn" disabled>Get Voices</button>
+            </div>
+        </div>
+        
         <div class="card">
             <h2>TTS Testing</h2>
             <div class="form-group">
@@ -166,18 +192,8 @@
             </div>
             <div class="form-group">
                 <label for="tts-voice">Voice</label>
-                <select id="tts-voice">
-                    <option value="en-US">English (US)</option>
-                    <option value="en-GB">English (UK)</option>
-                    <option value="es-ES">Spanish</option>
-                    <option value="fr-FR">French</option>
-                    <option value="de-DE">German</option>
-                    <option value="it-IT">Italian</option>
-                    <option value="ja-JP">Japanese</option>
-                    <option value="ko-KR">Korean</option>
-                    <option value="pt-BR">Portuguese (Brazil)</option>
-                    <option value="ru-RU">Russian</option>
-                    <option value="zh-CN">Chinese (Simplified)</option>
+                <select id="tts-voice" disabled>
+                    <option value="">Loading voices...</option>
                 </select>
             </div>
             <button id="tts-btn" disabled>Generate Speech</button>
@@ -185,6 +201,7 @@
         
         <div class="audio-container" id="audio-container" style="display: none;">
             <h2>Generated Audio</h2>
+            <div id="audio-info"></div>
             <audio controls id="audio-player">
                 Your browser does not support the audio element.
             </audio>
@@ -200,16 +217,23 @@
         const serverUrlInput = document.getElementById('server-url');
         const connectBtn = document.getElementById('connect-btn');
         const disconnectBtn = document.getElementById('disconnect-btn');
+        const ttsProviderSelect = document.getElementById('tts-provider');
+        const getVoicesBtn = document.getElementById('get-voices-btn');
         const ttsTextArea = document.getElementById('tts-text');
         const ttsVoiceSelect = document.getElementById('tts-voice');
         const ttsBtn = document.getElementById('tts-btn');
         const logContainer = document.getElementById('log-container');
         const audioContainer = document.getElementById('audio-container');
+        const audioInfo = document.getElementById('audio-info');
         const audioPlayer = document.getElementById('audio-player');
+        const providerInfo = document.querySelector('.provider-info');
         
         // WebSocket connection
         let ws = null;
         let clientId = null;
+        let availableProviders = [];
+        let defaultProvider = 'google';
+        let voicesByProvider = {}; // Store voices for each provider
         
         // Connect to WebSocket server
         connectBtn.addEventListener('click', () => {
@@ -226,8 +250,13 @@
                     connectBtn.disabled = true;
                     disconnectBtn.disabled = false;
                     ttsBtn.disabled = false;
+                    ttsProviderSelect.disabled = false;
+                    getVoicesBtn.disabled = false;
                     
                     logToUI('Connection established', 'status');
+                    
+                    // Get list of available providers
+                    getProviders();
                 };
                 
                 ws.onmessage = (event) => {
@@ -245,6 +274,9 @@
                     connectBtn.disabled = false;
                     disconnectBtn.disabled = true;
                     ttsBtn.disabled = true;
+                    ttsProviderSelect.disabled = true;
+                    getVoicesBtn.disabled = true;
+                    ttsVoiceSelect.disabled = true;
                     
                     logToUI('Connection closed', 'status');
                     
@@ -267,6 +299,54 @@
             }
         });
         
+        // Get available providers
+        function getProviders() {
+            if (!ws) {
+                logToUI('Not connected to server', 'error');
+                return;
+            }
+            
+            const request = {
+                type: 'get_providers',
+                request_id: generateRequestId(),
+                timestamp: new Date().toISOString()
+            };
+            
+            ws.send(JSON.stringify(request));
+            logToUI('Sent request for available providers', 'outgoing');
+        }
+        
+        // Get voices for the selected provider
+        getVoicesBtn.addEventListener('click', () => {
+            if (!ws) {
+                logToUI('Not connected to server', 'error');
+                return;
+            }
+            
+            const provider = ttsProviderSelect.value;
+            
+            const request = {
+                type: 'get_voices',
+                provider,
+                request_id: generateRequestId(),
+                timestamp: new Date().toISOString()
+            };
+            
+            ws.send(JSON.stringify(request));
+            logToUI(`Sent request for voices from provider: ${provider}`, 'outgoing');
+        });
+        
+        // Update voices when provider changes
+        ttsProviderSelect.addEventListener('change', () => {
+            const provider = ttsProviderSelect.value;
+            updateVoiceOptions(provider);
+            
+            // If we don't have voices for this provider yet, request them
+            if (!voicesByProvider[provider] || voicesByProvider[provider].length === 0) {
+                getVoicesBtn.click();
+            }
+        });
+        
         // Send TTS request
         ttsBtn.addEventListener('click', () => {
             if (!ws) {
@@ -275,6 +355,7 @@
             }
             
             const text = ttsTextArea.value;
+            const provider = ttsProviderSelect.value;
             const voice = ttsVoiceSelect.value;
             
             if (!text) {
@@ -285,13 +366,18 @@
             const request = {
                 type: 'tts_request',
                 text,
+                provider,
                 voice,
                 request_id: generateRequestId(),
                 timestamp: new Date().toISOString()
             };
             
             ws.send(JSON.stringify(request));
-            logToUI(`Sent TTS request: ${JSON.stringify(request, null, 2)}`, 'outgoing');
+            logToUI(`Sent TTS request to ${provider}: ${text.substring(0, 50)}...`, 'outgoing');
+            
+            // Show waiting status
+            audioInfo.innerHTML = `<p>Processing request with ${provider}...</p>`;
+            audioContainer.style.display = 'block';
         });
         
         // Handle incoming WebSocket messages
@@ -300,6 +386,34 @@
                 case 'connection':
                     clientId = message.client_id;
                     logToUI(`Connection established with client ID: ${clientId}`, 'status');
+                    break;
+                    
+                case 'providers_list':
+                    availableProviders = message.providers;
+                    defaultProvider = message.default_provider;
+                    
+                    // Update provider select
+                    updateProviderOptions();
+                    
+                    // Get voices for default provider
+                    ttsProviderSelect.value = defaultProvider;
+                    getVoicesBtn.click();
+                    break;
+                    
+                case 'voices_list':
+                    if (message.voices && message.voices.length > 0) {
+                        // Store voices for this provider
+                        voicesByProvider[message.provider] = message.voices;
+                        
+                        // Update voice select if this is the current provider
+                        if (message.provider === ttsProviderSelect.value) {
+                            updateVoiceOptions(message.provider);
+                        }
+                        
+                        logToUI(`Received ${message.voices.length} voices for provider: ${message.provider}`, 'status');
+                    } else {
+                        logToUI(`No voices available for provider: ${message.provider}`, 'error');
+                    }
                     break;
                     
                 case 'tts_response':
@@ -311,6 +425,7 @@
                         
                         audioPlayer.src = audioUrl;
                         audioContainer.style.display = 'block';
+                        audioInfo.innerHTML = `<p>Generated with ${message.provider} provider</p>`;
                         
                         logToUI('Received audio data, ready for playback', 'status');
                     }
@@ -318,6 +433,10 @@
                     
                 case 'tts_status':
                     logToUI(`TTS Status: ${message.status}`, 'status');
+                    
+                    if (message.status === 'error') {
+                        audioInfo.innerHTML = `<p>Error: ${message.error}</p>`;
+                    }
                     break;
                     
                 case 'error':
@@ -326,6 +445,78 @@
                     
                 default:
                     logToUI(`Unhandled message type: ${message.type}`, 'status');
+            }
+        }
+        
+        // Update provider select options
+        function updateProviderOptions() {
+            // Clear existing options
+            ttsProviderSelect.innerHTML = '';
+            
+            // Add available providers
+            availableProviders.forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider;
+                option.textContent = formatProviderName(provider);
+                ttsProviderSelect.appendChild(option);
+            });
+            
+            // Set default provider
+            ttsProviderSelect.value = defaultProvider;
+            
+            // Update provider info
+            providerInfo.innerHTML = `
+                <p>Available providers: ${availableProviders.map(formatProviderName).join(', ')}</p>
+                <p>Default provider: ${formatProviderName(defaultProvider)}</p>
+            `;
+            
+            // Enable selection
+            ttsProviderSelect.disabled = false;
+        }
+        
+        // Update voice select options for a provider
+        function updateVoiceOptions(provider) {
+            // Clear existing options
+            ttsVoiceSelect.innerHTML = '';
+            
+            // Check if we have voices for this provider
+            if (voicesByProvider[provider] && voicesByProvider[provider].length > 0) {
+                // Add voice options
+                voicesByProvider[provider].forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.id;
+                    option.textContent = voice.name;
+                    if (voice.language) {
+                        option.textContent += ` (${voice.language})`;
+                    }
+                    ttsVoiceSelect.appendChild(option);
+                });
+                
+                // Enable selection
+                ttsVoiceSelect.disabled = false;
+            } else {
+                // Add placeholder option
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No voices available, click "Get Voices" to load';
+                ttsVoiceSelect.appendChild(option);
+                
+                // Disable selection
+                ttsVoiceSelect.disabled = true;
+            }
+        }
+        
+        // Format provider name for display
+        function formatProviderName(provider) {
+            switch (provider.toLowerCase()) {
+                case 'google':
+                    return 'Google TTS';
+                case 'elevenlabs':
+                    return 'Eleven Labs';
+                case 'aws':
+                    return 'Amazon Polly';
+                default:
+                    return provider.charAt(0).toUpperCase() + provider.slice(1);
             }
         }
         
