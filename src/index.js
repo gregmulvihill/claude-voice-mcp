@@ -5,15 +5,21 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
-import { TtsService } from './services/ttsService.js';
+import { TtsServiceFactory } from './services/ttsServiceFactory.js';
 import { formatResponse, logMessage } from './utils/helpers.js';
 import mcpRoutes from './routes/mcpRoutes.js';
 
 // Load environment variables
 dotenv.config();
 
-// Initialize services
-const ttsService = new TtsService();
+// Initialize TTS service
+const ttsProvider = process.env.TTS_PROVIDER || 'google';
+const ttsService = TtsServiceFactory.createService(ttsProvider);
+
+// Log available TTS providers
+const availableProviders = TtsServiceFactory.getAvailableProviders();
+logMessage(`Available TTS providers: ${availableProviders.join(', ')}`);
+logMessage(`Using TTS provider: ${ttsProvider}`);
 
 // Create Express app
 const app = express();
@@ -79,8 +85,22 @@ wss.on('connection', (ws, req) => {
             }));
             
             try {
-              // Generate speech from text
-              const audioBuffer = await ttsService.textToSpeech(
+              // Determine which TTS provider to use for this request
+              let requestProvider = data.provider || ttsProvider;
+              
+              // If the requested provider is not available, use the default
+              if (!TtsServiceFactory.isProviderConfigured(requestProvider)) {
+                logMessage(`Requested TTS provider ${requestProvider} is not configured, falling back to ${ttsProvider}`);
+                requestProvider = ttsProvider;
+              }
+              
+              // Create a provider-specific service instance if needed
+              const serviceInstance = requestProvider === ttsProvider 
+                ? ttsService 
+                : TtsServiceFactory.createService(requestProvider);
+              
+              // Generate speech from text using the appropriate service
+              const audioBuffer = await serviceInstance.textToSpeech(
                 data.text, 
                 {
                   language: data.language,
@@ -98,6 +118,7 @@ wss.on('connection', (ws, req) => {
                 format: 'mp3',
                 data: base64Audio,
                 request_id: data.request_id,
+                provider: requestProvider,
                 timestamp: new Date().toISOString()
               }));
             } catch (error) {
@@ -124,6 +145,43 @@ wss.on('connection', (ws, req) => {
           ws.send(JSON.stringify({
             type: 'tts_status',
             status: 'cancelled',
+            request_id: data.request_id,
+            timestamp: new Date().toISOString()
+          }));
+          break;
+          
+        case 'get_voices':
+          // Return available voices for the requested provider
+          const voiceProvider = data.provider || ttsProvider;
+          let voices = [];
+          
+          try {
+            // Create a provider-specific service instance if needed
+            const serviceInstance = voiceProvider === ttsProvider 
+              ? ttsService 
+              : TtsServiceFactory.createService(voiceProvider);
+            
+            // Get available voices
+            voices = await serviceInstance.getAvailableVoices();
+          } catch (error) {
+            logMessage(`Error getting voices for provider ${voiceProvider}:`, error);
+          }
+          
+          ws.send(JSON.stringify({
+            type: 'voices_list',
+            provider: voiceProvider,
+            voices,
+            request_id: data.request_id,
+            timestamp: new Date().toISOString()
+          }));
+          break;
+          
+        case 'get_providers':
+          // Return available TTS providers
+          ws.send(JSON.stringify({
+            type: 'providers_list',
+            providers: TtsServiceFactory.getAvailableProviders(),
+            default_provider: ttsProvider,
             request_id: data.request_id,
             timestamp: new Date().toISOString()
           }));
