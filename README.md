@@ -4,6 +4,7 @@
 [![Status](https://img.shields.io/badge/Status-Pre--Alpha-orange)](https://github.com/gregmulvihill/claude-voice-mcp)
 [![MCP Tool](https://img.shields.io/badge/Type-MCP%20Tool-green)](https://github.com/gregmulvihill/claude-voice-mcp)
 [![License](https://img.shields.io/github/license/gregmulvihill/claude-voice-mcp)](LICENSE)
+[![Protected Branch](https://img.shields.io/badge/Main%20Branch-Protected-informational)](https://github.com/gregmulvihill/claude-voice-mcp)
 
 > **⚠️ PRE-ALPHA WARNING ⚠️**  
 > This project is in pre-alpha stage. The content has been created conceptually but has not been tested. Proceed with caution as significant changes may occur before the first stable release.
@@ -78,6 +79,21 @@ The repository includes a simple test client to verify the functionality of the 
 2. Open the `test-client/index.html` file in a web browser
 3. Connect to the MCP server using the default WebSocket URL (`ws://localhost:3000/api/v1/ws`)
 4. Enter text and click "Generate Speech" to test the TTS functionality
+
+## Development
+
+### Branch Protection
+
+The main branch is protected and requires pull requests with at least one approval before merging. This ensures code quality and proper review of all changes.
+
+### Development Workflow
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request for review
+5. Address any feedback
+6. Your changes will be merged after approval
 
 ## Integrating with Claude Desktop
 
